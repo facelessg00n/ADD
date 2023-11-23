@@ -1,10 +1,10 @@
-# Detects the presence of airtags and other Apple devices
+# Detects the presence of Airtags and other Apple devices
 # Apple devices emit BLE data which can reveal their presence and type
 
 ## Changelog
 #
 # 0.2 - Error handling added if bluetooth service is not started or adapter is down
-#       Added ability to cause an airtag to play its alert tone
+#       Added ability to cause an Airtag to play its alert tone
 #       Added lookup to show textual representation of activity types and tested common types
 #           Idle, Screen on and off etc
 # 0.1 - Initial Concept
@@ -504,7 +504,7 @@ if __name__ == "__main__":
         dest="tagsong",
         required=False,
         choices=["1"],
-        help="To force discovered airtags to play their alert tones. Airtag must not have been in contact with its owner for 15 minutes.",
+        help="Not yet implemented.",
     )
     parser.add_argument(
         "-m",
