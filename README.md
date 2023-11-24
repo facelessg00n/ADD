@@ -9,12 +9,9 @@ Apple devices emit BLE beacons to indicate their presence to other nearby Apple 
 When located and out of range of its owner for more than 15 min the Airtag can be forced to play its alert tone repeatedly.
 
 Airtags in range of their owners device may not emit FindMy packets. If you are experimenting with this script ensure your Apple devices bluetooth radio is fully off (turned off from the settings menu)
-
-![ADD1](https://github.com/facelessg00n/ADD/assets/65535230/7595785a-772f-4192-ba11-30b85f32e655)
 ---
 
 #### Dependencies
-
 
 Listed further in *requirements.txt*, however the following are required.
 
