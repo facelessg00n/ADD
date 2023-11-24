@@ -8,6 +8,7 @@ Apple devices emit BLE beacons to indicate their presence to other nearby Apple 
 
 When located and out of range of its owner for more than 15 min the Airtag can be forced to play its alert tone repeatedly.
 
+Airtags in range of their owners device may not emit FindMy packets. If you are experimenting with this script ensure your Apple devices bluetooth radio is fully off (turned off from the settings menu)
 ---
 
 #### Dependencies
@@ -18,7 +19,11 @@ Listed further in *requirements.txt*, however the following are required.
 - Bleak
 - Construct
 
-Usage `python3 -m pip install -r requirements.txt`
+    `python3 -m pip install -r requirements.txt`
+
+To run with default options
+
+    `python3 appleDeviceDetector.py`
 
 ---
 
