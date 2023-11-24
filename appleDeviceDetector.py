@@ -2,7 +2,7 @@
 # Apple devices emit BLE data which can reveal their presence and type
 
 ## Changelog
-#
+# 0.3 - MAC Address input validation for sound requests
 # 0.2 - Error handling added if bluetooth service is not started or adapter is down
 #       Added ability to cause an Airtag to play its alert tone
 #       Added lookup to show textual representation of activity types and tested common types
@@ -38,14 +38,17 @@ DEBUG = False
 
 __description__ = "Detects and displays a list of BLE devices emitting Apple Find my packets or Apple continuity packets"
 __author__ = "facelessg00n"
-__version__ = "0.2"
+__version__ = "0.3"
 
-# Enpoints for airtag sound requests
+# Endpoints for Airtag sound requests
 SERVICE_UDUD = "7dfc9000-7d1c-4951-86aa-8d9728f8d66c"
-# Service endpoint for unauthenticated deviced to set off the alarm
+# Service endpoint for unauthenticated device to set off the alarm
 SOUND_UDID = "7dfc9001-7d1c-4951-86aa-8d9728f8d66c"
 # Send this message to the above UDID to set off the alert tone.
 MSG_BYTES = bytearray([0xAF])
+
+# Regex to validate MAC addresses
+mac_match = re.compile("^(([0-9|A-F|a-f]{2}:){5}[0-9|A-F|a-f]{2})")
 
 banner = """
 _______                ______          ________            _____            
@@ -61,7 +64,7 @@ _  /_/ //  __/ /_ /  __/ /__ / /_ / /_/ /  /
 /_____/ \___/\__/ \___/\___/ \__/ \____//_/                                                   
 """
 
-airTags = []
+
 # -------------Parsers -----------------------------------------
 
 # Confirmed Activity Types
@@ -102,8 +105,7 @@ findmy_format = Struct(
     "HINT" / Int8ul,
 )
 
-
-# Struct to parse Apple Continity packets
+# Struct to parse Apple Continuity packets
 # 00 FF 4C00 10 00 00 0000000000000000000000
 # |  |  |    |  |  |  |                    |
 # |  |  |    |  |  |   \__Data____________/
@@ -141,7 +143,7 @@ NearbyInfoActivityLevels = {
     0x5E: "Phone call or Facetime",
 }
 
-# ----- Data Frames to hold items for display---------------------------------
+# -------------- Data Frames to hold items for display---------------------------------
 
 findMy_devices = pd.DataFrame(
     columns=[
@@ -207,9 +209,9 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
 
                     # Airtag Find My status is 0x10 - Fully charged, 0x50 medium charge. 0x90 and 0xD0 for low battery are unvalidated
                     if findMyStatus == "0x10" or findMyStatus == "0x50":
-                        likeleyTAG = "YES"
+                        likelyTAG = "YES"
                     else:
-                        likeleyTAG = "NO"
+                        likelyTAG = "NO"
                     dev_mac = advertisement_data.platform_data[1]["Address"]
 
                     # Add item to dataframe, indexed on MAC address
@@ -218,7 +220,7 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
                         hex(findMY.STATUS),
                         findMY.DATA_LEN,
                         advertisement_data.rssi,
-                        likeleyTAG,
+                        likelyTAG,
                         datetime.now().strftime("%H:%M:%S"),
                         datetime.now(),
                     )
@@ -294,8 +296,8 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
     # Apple company ID (0x004c) not found
     except KeyError:
         # print("Key error")
-
         pass
+
     except ConstError:
         print("Const Error")
         pass
@@ -309,7 +311,9 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
 async def clean_data(timeout_seconds_in):
     global apple_devices
     global findMy_devices
+    # global airTags
     timeout_seconds = timeout_seconds_in
+
     while True:
         time_threshold = datetime.now() - timedelta(seconds=timeout_seconds)
         if apple_devices.empty:
@@ -324,22 +328,32 @@ async def clean_data(timeout_seconds_in):
             except Exception as e:
                 print(e)
                 pass
+
         if findMy_devices.empty:
             pass
+
         else:
             try:
                 findMy_devices = findMy_devices[
                     findMy_devices["LAST_SEEN_CALC"] >= time_threshold
                 ]
+
             except Exception as e:
                 print(e)
                 pass
         await asyncio.sleep(5)
 
 
+airTagMacList = []
+
+
+# ----------------------- Display Loop -------------------------------------------
 # Displays found devices
 async def display_loop(sortType, timeout_seconds, bluetoothAdapter):
     global apple_devices
+    global findMy_devices
+    global airTagMacList
+
     while True:
         if not DEBUG:
             os.system("clear")
@@ -385,6 +399,16 @@ async def display_loop(sortType, timeout_seconds, bluetoothAdapter):
                     .sort_values(by=[sortType], ascending=False)
                     .head(25)
                 )
+            try:
+                airTagMacList = findMy_devices.index[
+                    findMy_devices["LIKELY_AIRTAG"] == "YES"
+                ].tolist()
+            except:
+                airTagMacList = []
+                pass
+            if DEBUG:
+                print(airTagMacList)
+
         await asyncio.sleep(1)
 
 
@@ -405,25 +429,28 @@ async def scan_loop(bluetoothAdapter):
 
 
 # Constantly connect and send 'play sound' bytes
-# This will always fail on a first attempt as an airtag requires a device has attempted to connect before.
-
-# TODO - Ensure input is a valid mac address
-
-
+# This will always fail on a first attempt as an airtag requires a previous connection attempt.
 async def sound_loop(targetMAC):
-    print(f"Targeting device: {str(targetMAC)}")
-    while True:
-        try:
-            client = BleakClient(targetMAC)
-            await client.connect()
-            await client.write_gatt_char(SOUND_UDID, MSG_BYTES)
-            # await asyncio.sleep(1.0)
-        except Exception as e:
-            print("Failed - Retrying")
-            print(e)
+    if bool(mac_match.match(targetMAC)):
+        print(f"Targeting device: {str(targetMAC)}")
+        while True:
+            try:
+                client = BleakClient(targetMAC)
+                await client.connect()
+                await client.write_gatt_char(SOUND_UDID, MSG_BYTES)
+                # await asyncio.sleep(1.0)
+            except Exception as e:
+                print(
+                    "Failed Device needs to be away from its owner for 15 minutes for this to work - Retrying"
+                )
+                print(e)
+    else:
+        print(
+            f"TARGET MAC:{targetMAC} is invalid, please use the format of aa:bb:cc:dd:ee:ff"
+        )
 
 
-# asyncio.run(main_loop())
+# --------------- Bluetooth Scan loop ----------------------------------------------------------
 
 
 def bluetooth_scan(sortType, timeout_seconds, bluetoothAdapter):
@@ -454,6 +481,7 @@ def bluetooth_scan(sortType, timeout_seconds, bluetoothAdapter):
         asyncio.ensure_future(scan_loop(bluetoothAdapter))
         asyncio.ensure_future(clean_data(timeout_seconds))
         asyncio.ensure_future(display_loop(sortType, timeout_seconds, bluetoothAdapter))
+
         loop.run_forever()
 
     except KeyboardInterrupt:
@@ -464,6 +492,8 @@ def bluetooth_scan(sortType, timeout_seconds, bluetoothAdapter):
         print("Closing loop")
         loop.close()
 
+
+# ----------- Argument Parser ----------------------------------------------------------------------
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -498,35 +528,21 @@ if __name__ == "__main__":
         required=False,
         help="To use an alternative bluetooth adapter enter details here, i.e hci1",
     )
-    parser.add_argument(
-        "-n",
-        "--noise",
-        dest="tagsong",
-        required=False,
-        choices=["1"],
-        help="Not yet implemented.",
-    )
+
     parser.add_argument(
         "-m",
         "--mac",
         dest="targetMAC",
         required=False,
-        help="Specify an airtag to force to play its alert tone. Airtag must not have been in contact with its owner for 15 minutes.",
+        help="Specify an airtag to force to repeatedly play its alert tone. Airtag must not have been in contact with its owner for 15 minutes.",
     )
 
     args = parser.parse_args()
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit
-    #
-    # TODO - create loop to set off all discovered airtags
-    if args.tagsong == "1":
-        print("To be implemented in the future.\n\nExiting")
-        sys.exit()
-    elif args.tagsong is not None and args.targetMAC is not None:
-        print("Airtag alert tone request sent. Will always fail on first attempt.")
-        asyncio.run(sound_loop(args.targetMAC))
-    elif args.targetMAC is not None:
+
+    if args.targetMAC is not None:
         print("Airtag alert tone request sent. Will always fail on first attempt.")
         asyncio.run(sound_loop(args.targetMAC))
     else:
