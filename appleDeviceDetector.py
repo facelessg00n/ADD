@@ -2,8 +2,8 @@
 # Apple devices emit BLE data which can reveal their presence and type
 
 ## Changelog
-# 0.4 - Support for Low and Critical battery states Airtags
-#     - Were not previously flagged as possible Airtags as status bytes were not confirmed
+# 0.4 - Support for Low and Critical battery state Airtags
+#     - Were not previously flagged as possible Airtags due to status bytes not being confirmed
 #     - Some spelling corrections
 # 0.3 - MAC Address input validation for sound requests
 # 0.2 - Error handling added if bluetooth service is not started or adapter is down
