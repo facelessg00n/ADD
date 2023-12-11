@@ -2,6 +2,9 @@
 # Apple devices emit BLE data which can reveal their presence and type
 
 ## Changelog
+# 0.4 - Support for Low and Critical battery states Airtags
+#     - Were not previously flagged as possible Airtags as status bytes were not confirmed
+#     - Some spelling corrections
 # 0.3 - MAC Address input validation for sound requests
 # 0.2 - Error handling added if bluetooth service is not started or adapter is down
 #       Added ability to cause an Airtag to play its alert tone
@@ -41,9 +44,9 @@ __author__ = "facelessg00n"
 __version__ = "0.3"
 
 # Endpoints for Airtag sound requests
-SERVICE_UDUD = "7dfc9000-7d1c-4951-86aa-8d9728f8d66c"
+SERVICE_UUID = "7dfc9000-7d1c-4951-86aa-8d9728f8d66c"
 # Service endpoint for unauthenticated device to set off the alarm
-SOUND_UDID = "7dfc9001-7d1c-4951-86aa-8d9728f8d66c"
+SOUND_UUID = "7dfc9001-7d1c-4951-86aa-8d9728f8d66c"
 # Send this message to the above UDID to set off the alert tone.
 MSG_BYTES = bytearray([0xAF])
 
@@ -75,6 +78,13 @@ AppleActivityTypes = {
     0x10: "Nearby Info",
     0x12: "Find My",
     0x0C: "Handoff",
+}
+
+airTagChargeState = {
+    0x10: "Airtag - Fully Charged",
+    0x50: "Airtag - Medium Charge",
+    0x90: "Airtag - Low battery",
+    0xD0: "Airtag - Critical battery",
 }
 
 # Struct to parse Apple Find My Network data
@@ -207,8 +217,14 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
                         print(advertisement_data.tx_power)
                         print(advertisement_data.platform_data[1]["Address"])
 
-                    # Airtag Find My status is 0x10 - Fully charged, 0x50 medium charge. 0x90 and 0xD0 for low battery are unvalidated
-                    if findMyStatus == "0x10" or findMyStatus == "0x50":
+                    # Airtag Find My status is 0x10 - Fully charged, 0x50 medium charge.
+                    # 0x90 and 0xD0 for Low and Critical battery states. 0XD0 is confirmed and 0x90 is assumed due to documentation
+                    if (
+                        findMyStatus == "0x10"
+                        or findMyStatus == "0x50"
+                        or findMyStatus == 0x90
+                        or findMyStatus == 0xD0
+                    ):
                         likelyTAG = "YES"
                     else:
                         likelyTAG = "NO"
@@ -241,9 +257,9 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
 
                     if DEBUG:
                         print(advertisement_data.platform_data[1]["Address"])
-                        print(f"Contunuity_TYPE    : {hex(continuityProtocol.TYPE)}")
+                        print(f"Continuity_TYPE    : {hex(continuityProtocol.TYPE)}")
                         print(
-                            f"Contunuity Length   : {hex(continuityProtocol.DATA_LEN)}"
+                            f"Continuity Length   : {hex(continuityProtocol.DATA_LEN)}"
                         )
                         print(
                             f"Activity Type     : {hex(continuityProtocol.ACTIVITY_TYPE)}"
@@ -289,7 +305,7 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
                 pass
 
         else:
-            print("Other manufactuer")
+            print("Other manufacturer")
             pass
 
     # TODO - Tidy up error handling
@@ -429,7 +445,7 @@ async def scan_loop(bluetoothAdapter):
 
 
 # Constantly connect and send 'play sound' bytes
-# This will always fail on a first attempt as an airtag requires a previous connection attempt.
+# This will always fail on a first attempt as an Airtag requires a previous connection attempt.
 async def sound_loop(targetMAC):
     if bool(mac_match.match(targetMAC)):
         print(f"Targeting device: {str(targetMAC)}")
@@ -437,7 +453,7 @@ async def sound_loop(targetMAC):
             try:
                 client = BleakClient(targetMAC)
                 await client.connect()
-                await client.write_gatt_char(SOUND_UDID, MSG_BYTES)
+                await client.write_gatt_char(SOUND_UUID, MSG_BYTES)
                 # await asyncio.sleep(1.0)
             except Exception as e:
                 print(
@@ -534,7 +550,7 @@ if __name__ == "__main__":
         "--mac",
         dest="targetMAC",
         required=False,
-        help="Specify an airtag to force to repeatedly play its alert tone. Airtag must not have been in contact with its owner for 15 minutes.",
+        help="Specify an Airtag to force to repeatedly play its alert tone. Airtag must not have been in contact with its owner for 15 minutes.",
     )
 
     args = parser.parse_args()
