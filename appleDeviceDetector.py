@@ -41,7 +41,7 @@ DEBUG = False
 
 __description__ = "Detects and displays a list of BLE devices emitting Apple Find my packets or Apple continuity packets"
 __author__ = "facelessg00n"
-__version__ = "0.3"
+__version__ = "0.4"
 
 # Endpoints for Airtag sound requests
 SERVICE_UUID = "7dfc9000-7d1c-4951-86aa-8d9728f8d66c"
