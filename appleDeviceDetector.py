@@ -222,8 +222,8 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
                     if (
                         findMyStatus == "0x10"
                         or findMyStatus == "0x50"
-                        or findMyStatus == 0x90
-                        or findMyStatus == 0xD0
+                        or findMyStatus == "0x90"
+                        or findMyStatus == "0xD0"
                     ):
                         likelyTAG = "YES"
                     else:
