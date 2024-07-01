@@ -2,8 +2,11 @@
 # Apple devices emit BLE data which can reveal their presence and type
 
 ## Changelog
-# 0.4 - Support for Low and Critical battery states Airtags
-#     - Were not previously flagged as possible Airtags as status bytes were not confirmed
+#  0.5 - Add support for Tile trackers
+#      - Add initial support for Samsung Offline Finding
+#      - Add further support for Aftermarket Airtags
+#  0.4 - Support for Low and Critical battery state Airtags
+#     - Were not previously flagged as possible Airtags due to status bytes not being confirmed
 #     - Some spelling corrections
 # 0.3 - MAC Address input validation for sound requests
 # 0.2 - Error handling added if bluetooth service is not started or adapter is down
@@ -43,7 +46,9 @@ TAGTYPE = False
 
 __description__ = "Detects and displays a list of BLE devices emitting Apple Find my packets or Apple continuity packets"
 __author__ = "facelessg00n"
-__version__ = "0.3"
+__version__ = "0.5"
+# pd.set_option('display.max_columns', 40)
+pd.set_option("display.width", 12)
 
 # Endpoints for Airtag sound requests
 SERVICE_UUID = "7dfc9000-7d1c-4951-86aa-8d9728f8d66c"
