@@ -2,8 +2,8 @@
 # Apple devices emit BLE data which can reveal their presence and type
 
 ## Changelog
-# 0.4 - Support for Low and Critical battery state Airtags
-#     - Were not previously flagged as possible Airtags due to status bytes not being confirmed
+# 0.4 - Support for Low and Critical battery states Airtags
+#     - Were not previously flagged as possible Airtags as status bytes were not confirmed
 #     - Some spelling corrections
 # 0.3 - MAC Address input validation for sound requests
 # 0.2 - Error handling added if bluetooth service is not started or adapter is down
@@ -38,10 +38,12 @@ import subprocess as sp
 
 # Enable debug prints
 DEBUG = False
+# Display Tag Status as Textual or keep Status bytes
+TAGTYPE = False
 
 __description__ = "Detects and displays a list of BLE devices emitting Apple Find my packets or Apple continuity packets"
 __author__ = "facelessg00n"
-__version__ = "0.4"
+__version__ = "0.3"
 
 # Endpoints for Airtag sound requests
 SERVICE_UUID = "7dfc9000-7d1c-4951-86aa-8d9728f8d66c"
@@ -50,21 +52,22 @@ SOUND_UUID = "7dfc9001-7d1c-4951-86aa-8d9728f8d66c"
 # Send this message to the above UDID to set off the alert tone.
 MSG_BYTES = bytearray([0xAF])
 
+# UUID for Tile service (0xFEED)
+Tile_UUID = "0000feed-0000-1000-8000-00805f9b34fb"
+
+# UUID for Samsung Offline Finding Service
+offlineFinding_UUID = "0000fd5a-0000-1000-8000-00805f9b34fb"
+
 # Regex to validate MAC addresses
 mac_match = re.compile("^(([0-9|A-F|a-f]{2}:){5}[0-9|A-F|a-f]{2})")
 
 banner = """
-_______                ______          ________            _____            
-___    |__________________  /____      ___  __ \_______   ____(_)__________ 
-__  /| |__  __ \__  __ \_  /_  _ \     __  / / /  _ \_ | / /_  /_  ___/  _ \\
-_  ___ |_  /_/ /_  /_/ /  / /  __/     _  /_/ //  __/_ |/ /_  / / /__ /  __/
-/_/  |_|  .___/_  .___//_/  \___/      /_____/ \___/_____/ /_/  \___/ \___/ 
-       /_/     /_/                                                          
-________     _____           _____              
-___  __ \______  /_____________  /______________
-__  / / /  _ \  __/  _ \  ___/  __/  __ \_  ___/
-_  /_/ //  __/ /_ /  __/ /__ / /_ / /_/ /  /    
-/_____/ \___/\__/ \___/\___/ \__/ \____//_/                                                   
+    ___                __        ____            _              ____       __            __            
+   /   |  ____  ____  / /__     / __ \___ _   __(_)_______     / __ \___  / /____  _____/ /_____  _____
+  / /| | / __ \/ __ \/ / _ \   / / / / _ \ | / / / ___/ _ \   / / / / _ \/ __/ _ \/ ___/ __/ __ \/ ___/
+ / ___ |/ /_/ / /_/ / /  __/  / /_/ /  __/ |/ / / /__/  __/  / /_/ /  __/ /_/  __/ /__/ /_/ /_/ / /    
+/_/  |_/ .___/ .___/_/\___/  /_____/\___/|___/_/\___/\___/  /_____/\___/\__/\___/\___/\__/\____/_/     
+      /_/   /_/                                                                                                                                                                                                                 
 """
 
 
@@ -85,6 +88,8 @@ airTagChargeState = {
     0x50: "Airtag - Medium Charge",
     0x90: "Airtag - Low battery",
     0xD0: "Airtag - Critical battery",
+    0x20: "Aftermarket FindMy",
+    0x24: "Aftermarket FinMy - Owner Connected 15",
 }
 
 # Struct to parse Apple Find My Network data
@@ -115,6 +120,26 @@ findmy_format = Struct(
     "HINT" / Int8ul,
 )
 
+
+# Samsung Offline Finding (OF) Packet
+# 15 6bfa00 c84062b28f00e260 c3 000000 ad018b47
+# |  |      |                |  |      |
+# |  |      |                |  |      \_ Signature
+# |  |      |                |  \_ Reserved
+# |  |      |                \_ 0-3 Region, 4 Encrytion, 5 UWB, 6-7 Battery Level
+# |  |       \_ Privacy ID
+# |  \_ Aging counter
+# \_ 0-3 Version 4 ADV type 5-7 Tag state
+
+samsung_offline_find_format = Struct(
+    "DATA1" / Int8ul,
+    "AGINGCOUNTER" / Array(3, Byte),
+    "PRIVACYID" / Array(8, Byte),
+    "DATA2" / Int8ul,
+    "RESERVED" / Array(3, Byte),
+    "SIGNATURE" / Array(4, Byte),
+)
+
 # Struct to parse Apple Continuity packets
 # 00 FF 4C00 10 00 00 0000000000000000000000
 # |  |  |    |  |  |  |                    |
@@ -140,7 +165,7 @@ continuity_format = Struct(
 
 NearbyInfoActivityLevels = {
     0x00: "Activity level is not known",
-    0x01: "Activity reporting is disabled",
+    0x31: "Activity reporting is disabled",
     0x33: "Device is idle",
     # 0x05: "Audio is playing with the screen off",
     0x13: "Screen off",
@@ -149,6 +174,7 @@ NearbyInfoActivityLevels = {
     0x09: "Screen on and video playing",
     # 0x0A: "Watch is on wrist and unlocked",
     0x7B: "Recent user interaction",
+    0x0B: "Recent user interaction",
     # 0x0D: "User is driving a vehicle",
     0x5E: "Phone call or Facetime",
 }
@@ -168,6 +194,19 @@ findMy_devices = pd.DataFrame(
     ]
 )
 findMy_devices.set_index("MAC", inplace=True)
+
+tracking_devices = pd.DataFrame(
+    columns=[
+        "MAC",
+        "TYPE",
+        "STATUS",
+        "LENGTH",
+        "RSSI",
+        "LAST_SEEN",
+        "LAST_SEEN_CALC",
+    ]
+)
+tracking_devices.set_index("MAC", inplace=True)
 
 apple_devices = pd.DataFrame(
     columns=[
@@ -230,10 +269,22 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
                         likelyTAG = "NO"
                     dev_mac = advertisement_data.platform_data[1]["Address"]
 
+                    # Display Tag Type
+                    findMyStatus = hex(findMY.STATUS)
+
+                    if TAGTYPE:
+                        actType = findMY.STATUS
+                        if actType in airTagChargeState:
+                            text_rep = airTagChargeState.get(actType)
+                            findMyStatus = text_rep
+                        else:
+                            findMyStatus = findMyStatus
+
                     # Add item to dataframe, indexed on MAC address
                     findMy_devices.loc[dev_mac] = (
                         hex(findMY.OF_TYPE),
-                        hex(findMY.STATUS),
+                        findMyStatus,
+                        # hex(findMY.STATUS),
                         findMY.DATA_LEN,
                         advertisement_data.rssi,
                         likelyTAG,
@@ -275,8 +326,9 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
                     contType = continuityProtocol.TYPE
 
                     if actType in NearbyInfoActivityLevels:
-                        text_rep = NearbyInfoActivityLevels.get(actType, actType)
-                        actType = text_rep
+                        if hex(contType) != "0x12":
+                            text_rep = NearbyInfoActivityLevels.get(actType, actType)
+                            actType = text_rep
                     else:
                         actType = hex(continuityProtocol.ACTIVITY_TYPE)
 
@@ -317,9 +369,46 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
     except ConstError:
         print("Const Error")
         pass
-
     except Exception as e:
         print(e)
+    try:
+        if advertisement_data.service_uuids:
+
+            try:
+                if advertisement_data.service_uuids[0] == Tile_UUID:
+                    # Add Tile to dataframe, indexed on MAC address
+                    dev_mac = advertisement_data.platform_data[1]["Address"]
+                    tracking_devices.loc[dev_mac] = (
+                        "TILE",
+                        "TILE",
+                        "TILE",
+                        advertisement_data.rssi,
+                        datetime.now().strftime("%H:%M:%S"),
+                        datetime.now(),
+                    )
+
+                # Detect Samsung device via advertised Service
+                # TODO Parse status bits
+                elif advertisement_data.service_uuids[0] == offlineFinding_UUID:
+                    samsung_data = advertisement_data.service_data[offlineFinding_UUID]
+                    offlineFIND = samsung_offline_find_format.parse(samsung_data)
+                    dev_mac = advertisement_data.platform_data[1]["Address"]
+                    # Add Samsung device to dataframe
+                    tracking_devices.loc[dev_mac] = (
+                        hex(offlineFIND.DATA1),
+                        hex(offlineFIND.DATA2),
+                        "SAMSUNG",
+                        advertisement_data.rssi,
+                        datetime.now().strftime("%H:%M:%S"),
+                        datetime.now(),
+                    )
+
+            except Exception as e:
+                print(e)
+                pass
+    except Exception as e:
+        print(e)
+        pass
 
 
 # Cleans dataframe by removing items that have not been seen for a set period of seconds
@@ -327,6 +416,7 @@ def device_found(device: BLEDevice, advertisement_data: AdvertisementData):
 async def clean_data(timeout_seconds_in):
     global apple_devices
     global findMy_devices
+    global tracking_devices
     # global airTags
     timeout_seconds = timeout_seconds_in
 
@@ -336,7 +426,7 @@ async def clean_data(timeout_seconds_in):
             pass
         else:
             try:
-                print("Cleaning dataframe")
+                # print("Cleaning dataframe")
                 apple_devices = apple_devices[
                     apple_devices["LAST_SEEN_CALC"] >= time_threshold
                 ]
@@ -357,7 +447,21 @@ async def clean_data(timeout_seconds_in):
             except Exception as e:
                 print(e)
                 pass
-        await asyncio.sleep(5)
+        # await asyncio.sleep(5)
+
+        if tracking_devices.empty:
+            pass
+
+        else:
+            try:
+                tracking_devices = tracking_devices[
+                    tracking_devices["LAST_SEEN_CALC"] >= time_threshold
+                ]
+
+            except Exception as e:
+                print(e)
+                pass
+        await asyncio.sleep(1)
 
 
 airTagMacList = []
@@ -368,6 +472,7 @@ airTagMacList = []
 async def display_loop(sortType, timeout_seconds, bluetoothAdapter):
     global apple_devices
     global findMy_devices
+    global tracking_devices
     global airTagMacList
 
     while True:
@@ -395,23 +500,32 @@ async def display_loop(sortType, timeout_seconds, bluetoothAdapter):
                         [
                             "TYPE",
                             "STATUS",
-                            "LENGTH",
+                            # "LENGTH",
                             "RSSI",
                             "LIKELY_AIRTAG",
                             "LAST_SEEN",
                         ]
                     ].sort_values(by=[sortType], ascending=False)
                 )
-
+            # Print Tracking Devices Dataframe
+            print(f"\nOther Tracking Devices   - {len(tracking_devices)}")
+            print(75 * "_")
+            if tracking_devices.empty:
+                print("Nil Detected")
+            else:
+                print(
+                    tracking_devices[["TYPE", "STATUS", "LENGTH", "RSSI", "LAST_SEEN"]]
+                    .sort_values(by=[sortType], ascending=False)
+                    .head(25)
+                )
+            # Print other apple devices
             print(f"\nOther Apple Devices      - {len(apple_devices)}")
             print(75 * "_")
             if apple_devices.empty:
                 print("Nil Detected")
             else:
                 print(
-                    apple_devices[
-                        ["TYPE", "ACTIVITY_TYPE", "DATA_LENGTH", "RSSI", "LAST_SEEN"]
-                    ]
+                    apple_devices[["TYPE", "ACTIVITY_TYPE", "RSSI", "LAST_SEEN"]]
                     .sort_values(by=[sortType], ascending=False)
                     .head(25)
                 )
